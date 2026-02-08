@@ -8,15 +8,9 @@ import { Modal } from '../../components/Modal';
 import { db, generateUUID } from '../../lib/db';
 import { useAuth } from '../../contexts/AuthContext';
 
-const DURATION_OPTIONS = [
-  { label: '5 mins', value: 5 },
-  { label: '15 mins', value: 15 },
-  { label: '30 mins', value: 30 },
-  { label: '1 hour', value: 60 },
-  { label: '2 hours', value: 120 },
-  { label: '3 hours', value: 180 },
-  { label: 'End of day', value: 480 },
-];
+const MIN_DURATION = 5; // 5 minutes
+const MAX_DURATION = 480; // 8 hours (end of day)
+const DEFAULT_DURATION = 60; // 1 hour
 
 export function BorrowFlow({ onComplete }: { onComplete: () => void }) {
   const { user } = useAuth();
@@ -29,7 +23,7 @@ export function BorrowFlow({ onComplete }: { onComplete: () => void }) {
   const [selectedStudent, setSelectedStudent] = useState<any>(null);
   const [selectedEquipment, setSelectedEquipment] = useState<string[]>([]);
   const [showBlacklistModal, setShowBlacklistModal] = useState(false);
-  const [selectedDuration, setSelectedDuration] = useState(60); // Default 1 hour
+  const [selectedDuration, setSelectedDuration] = useState(DEFAULT_DURATION); // Default 1 hour
 
   useEffect(() => {
     if (step === 'student') loadStudents();
@@ -136,10 +130,6 @@ export function BorrowFlow({ onComplete }: { onComplete: () => void }) {
     }
   }
 
-  function isItemUnavailable(status: string) {
-    return status !== 'available';
-  }
-
   async function handleConfirm() {
     if (!selectedStudent || selectedEquipment.length === 0) return;
 
@@ -194,34 +184,46 @@ export function BorrowFlow({ onComplete }: { onComplete: () => void }) {
         />
 
         <div className="space-y-3">
-          {filteredStudents.map(student => (
-            <div
-              key={student.id}
-              className={`bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 ${student.is_blacklisted ? 'border-2 border-red-300 dark:border-red-700' : ''
-                }`}
-            >
-              <div className="flex items-center gap-3">
-                <Avatar
-                  src={student.avatar_url}
-                  name={student.full_name}
-                  size="md"
-                  showStatus={!student.is_blacklisted}
-                  statusColor={student.is_blacklisted ? 'red' : 'green'}
-                />
-                <div className="flex-1">
-                  <h3 className="font-semibold text-gray-900 dark:text-white">{student.full_name}</h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-300">Class {student.class_name}</p>
+          {filteredStudents.map(student => {
+            const trustScore = student.trust_score || 50;
+            const trustColor = trustScore >= 80 ? 'text-green-600 dark:text-green-400' :
+                              trustScore >= 50 ? 'text-yellow-600 dark:text-yellow-400' :
+                              'text-red-600 dark:text-red-400';
+            
+            return (
+              <div
+                key={student.id}
+                className={`bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 ${student.is_blacklisted ? 'border-2 border-red-300 dark:border-red-700' : ''
+                  }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Avatar
+                    src={student.avatar_url}
+                    name={student.full_name}
+                    size="md"
+                    showStatus={!student.is_blacklisted}
+                    statusColor={student.is_blacklisted ? 'red' : 'green'}
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-semibold text-gray-900 dark:text-white">{student.full_name}</h3>
+                      <span className={`text-sm font-bold ${trustColor}`}>
+                        {Math.round(trustScore)}%
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-600 dark:text-gray-300">Class {student.class_name}</p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant={student.is_blacklisted ? 'danger' : 'primary'}
+                    onClick={() => handleStudentSelect(student)}
+                  >
+                    Select
+                  </Button>
                 </div>
-                <Button
-                  size="sm"
-                  variant={student.is_blacklisted ? 'danger' : 'primary'}
-                  onClick={() => handleStudentSelect(student)}
-                >
-                  Select
-                </Button>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <Modal
@@ -302,7 +304,7 @@ export function BorrowFlow({ onComplete }: { onComplete: () => void }) {
                   <img
                     src={item.image_url}
                     alt={item.name}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-contain bg-white"
                   />
                   {isSelected && (
                     <div className="absolute top-2 right-2 w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center shadow-lg">
@@ -388,20 +390,28 @@ export function BorrowFlow({ onComplete }: { onComplete: () => void }) {
               <Clock className="w-4 h-4 inline mr-1" />
               Borrow Duration
             </h3>
-            <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-7 gap-2">
-              {DURATION_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  onClick={() => setSelectedDuration(option.value)}
-                  className={`px-2 sm:px-3 py-2 rounded-lg text-xs sm:text-sm font-medium transition-all ${
-                    selectedDuration === option.value
-                      ? 'bg-blue-600 text-white shadow-md'
-                      : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
+            
+            {/* Duration Slider */}
+            <div className="space-y-4">
+              <div className="px-2">
+                <input
+                  type="range"
+                  min={MIN_DURATION}
+                  max={MAX_DURATION}
+                  step={5}
+                  value={selectedDuration}
+                  onChange={(e) => setSelectedDuration(Number(e.target.value))}
+                  className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                  style={{
+                    background: `linear-gradient(to right, #2563eb 0%, #2563eb ${((selectedDuration - MIN_DURATION) / (MAX_DURATION - MIN_DURATION)) * 100}%, #e5e7eb ${((selectedDuration - MIN_DURATION) / (MAX_DURATION - MIN_DURATION)) * 100}%, #e5e7eb 100%)`
+                  }}
+                />
+              </div>
+              
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-600 dark:text-gray-400">Duration: {getDurationLabel(selectedDuration)}</span>
+                <span className="font-semibold text-gray-900 dark:text-white">Due: {dueTimeStr}</span>
+              </div>
             </div>
           </div>
 
@@ -425,7 +435,7 @@ export function BorrowFlow({ onComplete }: { onComplete: () => void }) {
                   <img
                     src={item.image_url}
                     alt={item.name}
-                    className="w-12 h-12 rounded object-cover"
+                    className="w-12 h-12 rounded object-contain bg-white"
                   />
                   <div className="flex-1">
                     <p className="font-semibold text-gray-900 dark:text-white text-sm">{item.name}</p>

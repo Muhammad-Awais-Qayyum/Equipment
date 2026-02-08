@@ -207,7 +207,7 @@ export function ReturnFlow({ onComplete }: { onComplete: () => void }) {
                       <img
                         src={loan.equipment?.image_url}
                         alt={loan.equipment?.name}
-                        className="w-full sm:w-32 h-40 sm:h-32 object-cover rounded-lg"
+                        className="w-full sm:w-32 h-40 sm:h-32 object-contain bg-white rounded-lg"
                       />
                       <div className="absolute bottom-2 left-2 bg-black/70 text-white text-xs px-2 py-1 rounded">
                         ID: {loan.equipment?.item_id}

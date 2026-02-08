@@ -6,7 +6,7 @@ import { Button } from '../../components/Button';
 import { Modal } from '../../components/Modal';
 import { StudentProfileModal } from '../../components/StudentProfileModal';
 import { db, generateUUID, Student } from '../../lib/db';
-import { Calendar, Plus, FileText, FileSpreadsheet, Trash2, User } from 'lucide-react';
+import { Calendar, Plus, FileText, FileSpreadsheet, Trash2, User, CheckSquare, Square } from 'lucide-react';
 import { Toast } from '../../components/Toast';
 import * as XLSX from 'xlsx';
 
@@ -24,6 +24,8 @@ export function AdminStudents() {
   const [importing, setImporting] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [profileStudent, setProfileStudent] = useState<Student | null>(null);
+  const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set());
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
 
   const [manualForm, setManualForm] = useState({
     full_name: '',
@@ -157,19 +159,54 @@ export function AdminStudents() {
           throw new Error('CSV file must have headers and at least one data row');
         }
 
-        const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+        // Proper CSV parser that handles quoted fields with commas
+        function parseCSVLine(line: string): string[] {
+          const result: string[] = [];
+          let current = '';
+          let inQuotes = false;
+
+          for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            const nextChar = line[i + 1];
+
+            if (char === '"') {
+              if (inQuotes && nextChar === '"') {
+                // Escaped quote
+                current += '"';
+                i++; // Skip next quote
+              } else {
+                // Toggle quote state
+                inQuotes = !inQuotes;
+              }
+            } else if (char === ',' && !inQuotes) {
+              // Field separator
+              result.push(current.trim());
+              current = '';
+            } else {
+              current += char;
+            }
+          }
+          // Add last field
+          result.push(current.trim());
+          return result;
+        }
+
+        const headerLine = parseCSVLine(lines[0]);
+        const headers = headerLine.map(h => h.toLowerCase().replace(/^"|"$/g, ''));
         const nameIndex = headers.findIndex(h => h.includes('name'));
         const classIndex = headers.findIndex(h => h.includes('class'));
+        const houseIndex = headers.findIndex(h => h.includes('house'));
 
         if (nameIndex === -1 || classIndex === -1) {
           throw new Error('CSV must have "name" and "class" columns');
         }
 
         data = lines.slice(1).map(line => {
-          const values = line.split(',').map(v => v.trim());
+          const values = parseCSVLine(line).map(v => v.replace(/^"|"$/g, ''));
           return {
-            full_name: values[nameIndex],
-            class_name: values[classIndex],
+            full_name: values[nameIndex] || '',
+            class_name: values[classIndex] || '',
+            house: houseIndex !== -1 ? (values[houseIndex] || null) : null,
           };
         }).filter(row => row.full_name && row.class_name);
 
@@ -182,6 +219,7 @@ export function AdminStudents() {
         data = jsonData.map((row: any) => {
           const nameKey = Object.keys(row).find(k => k.toLowerCase().includes('name'));
           const classKey = Object.keys(row).find(k => k.toLowerCase().includes('class'));
+          const houseKey = Object.keys(row).find(k => k.toLowerCase().includes('house'));
 
           if (!nameKey || !classKey) {
             throw new Error('Excel must have "name" and "class" columns');
@@ -190,6 +228,7 @@ export function AdminStudents() {
           return {
             full_name: String(row[nameKey]).trim(),
             class_name: String(row[classKey]).trim(),
+            house: houseKey ? (String(row[houseKey]).trim() || null) : null,
           };
         }).filter(row => row.full_name && row.class_name);
       }
@@ -204,8 +243,8 @@ export function AdminStudents() {
         student_id: `STU${Date.now().toString().slice(-6)}${index}`,
         full_name: row.full_name,
         class_name: row.class_name,
-        year_group: 'Year 7',
-        house: null,
+        year_group: row.class_name || 'Year 7', // Use class from CSV
+        house: row.house || null,
         email: null,
         avatar_url: null,
         trust_score: 100,
@@ -246,6 +285,30 @@ export function AdminStudents() {
     } catch (error: any) {
       console.error('Error deleting student:', error);
       setToast({ message: error.message || 'Failed to delete student', type: 'error' });
+    }
+  }
+
+  async function handleBulkDelete() {
+    if (selectedStudents.size === 0) return;
+
+    try {
+      const studentIds = Array.from(selectedStudents);
+      await db.transaction('rw', db.students, db.blacklistEntries, async () => {
+        await Promise.all(
+          studentIds.map(async (id) => {
+            await db.students.delete(id);
+            await db.blacklistEntries.where('student_id').equals(id).delete();
+          })
+        );
+      });
+
+      setToast({ message: `Successfully deleted ${studentIds.length} student(s)`, type: 'success' });
+      setSelectedStudents(new Set());
+      setShowBulkDeleteConfirm(false);
+      loadStudents();
+    } catch (error: any) {
+      console.error('Error deleting students:', error);
+      setToast({ message: error.message || 'Failed to delete students', type: 'error' });
     }
   }
 
@@ -328,20 +391,73 @@ export function AdminStudents() {
         </div>
       ) : (
         <div className="space-y-2 sm:space-y-3">
-          <h3 className="text-xs sm:text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-            Students ({filteredStudents.length})
-          </h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs sm:text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+              Students ({filteredStudents.length})
+            </h3>
+            <div className="flex items-center gap-2">
+              {selectedStudents.size > 0 && (
+                <button
+                  onClick={() => setShowBulkDeleteConfirm(true)}
+                  className="px-3 py-1.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-xs sm:text-sm font-medium flex items-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Delete ({selectedStudents.size})
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  if (selectedStudents.size === filteredStudents.length) {
+                    setSelectedStudents(new Set());
+                  } else {
+                    setSelectedStudents(new Set(filteredStudents.map(s => s.id)));
+                  }
+                }}
+                className="px-3 py-1.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-xs sm:text-sm font-medium flex items-center gap-1.5"
+              >
+                {selectedStudents.size === filteredStudents.length ? (
+                  <>
+                    <CheckSquare className="w-3.5 h-3.5" />
+                    Deselect All
+                  </>
+                ) : (
+                  <>
+                    <Square className="w-3.5 h-3.5" />
+                    Select All
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
           {filteredStudents.map((student) => {
             const isOverdue = overdueStudents.has(student.id);
+            const isSelected = selectedStudents.has(student.id);
 
             return (
               <div
                 key={student.id}
-                className={`bg-white dark:bg-gray-800 rounded-lg shadow-md p-3 sm:p-4 ${isOverdue ? 'border-2 border-red-300 dark:border-red-700' : ''
-                  }`}
+                className={`bg-white dark:bg-gray-800 rounded-lg shadow-md p-3 sm:p-4 ${isOverdue ? 'border-2 border-red-300 dark:border-red-700' : ''} ${isSelected ? 'ring-2 ring-blue-500' : ''}`}
               >
                 <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
                   <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                    <button
+                      onClick={() => {
+                        const newSelected = new Set(selectedStudents);
+                        if (newSelected.has(student.id)) {
+                          newSelected.delete(student.id);
+                        } else {
+                          newSelected.add(student.id);
+                        }
+                        setSelectedStudents(newSelected);
+                      }}
+                      className="flex-shrink-0 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+                    >
+                      {isSelected ? (
+                        <CheckSquare className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                      ) : (
+                        <Square className="w-5 h-5 text-gray-400" />
+                      )}
+                    </button>
                     <Avatar
                       src={student.avatar_url}
                       name={student.full_name}
@@ -489,8 +605,10 @@ export function AdminStudents() {
                 <ul className="text-sm text-blue-800 space-y-1">
                   <li>• First row must contain headers</li>
                   <li>• Must include columns: "name" and "class"</li>
-                  <li>• Example: name,class</li>
-                  <li>• Example: John Smith,7A</li>
+                  <li>• Optional: "house" column (third column)</li>
+                  <li>• Supports quoted fields with commas: "A, Genevieve"</li>
+                  <li>• Example: name,class,house</li>
+                  <li>• Example: "A, Genevieve",3A,Red House</li>
                 </ul>
               </div>
 
@@ -681,6 +799,36 @@ export function AdminStudents() {
         onClose={() => setShowProfileModal(false)}
         student={profileStudent}
       />
+
+      <Modal
+        isOpen={showBulkDeleteConfirm}
+        onClose={() => setShowBulkDeleteConfirm(false)}
+        size="sm"
+        position="center"
+      >
+        <div className="space-y-4">
+          <h3 className="text-xl font-bold text-red-600 dark:text-red-400">Delete Students</h3>
+          <p className="text-gray-600 dark:text-gray-300">
+            Are you sure you want to delete <span className="font-semibold">{selectedStudents.size}</span> student(s)? This action cannot be undone.
+          </p>
+          <div className="flex gap-2">
+            <Button
+              variant="danger"
+              fullWidth
+              onClick={handleBulkDelete}
+            >
+              Delete {selectedStudents.size} Student(s)
+            </Button>
+            <Button
+              variant="secondary"
+              fullWidth
+              onClick={() => setShowBulkDeleteConfirm(false)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

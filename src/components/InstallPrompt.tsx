@@ -9,8 +9,15 @@ interface BeforeInstallPromptEvent extends Event {
 export function InstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showInstallButton, setShowInstallButton] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
 
   useEffect(() => {
+    // Detect iOS/iPad
+    const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    setIsIOS(iOS);
+
+    // For Android/Chrome
     const handler = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e as BeforeInstallPromptEvent);
@@ -19,12 +26,23 @@ export function InstallPrompt() {
 
     window.addEventListener('beforeinstallprompt', handler);
 
+    // For iOS, show button if not already installed
+    if (iOS && !window.matchMedia('(display-mode: standalone)').matches) {
+      setShowInstallButton(true);
+    }
+
     return () => {
       window.removeEventListener('beforeinstallprompt', handler);
     };
   }, []);
 
   const handleInstallClick = async () => {
+    if (isIOS) {
+      // Show iOS instructions
+      alert('To install this app on your iPad:\n\n1. Tap the Share button (square with arrow)\n2. Scroll down and tap "Add to Home Screen"\n3. Tap "Add"');
+      return;
+    }
+
     if (!deferredPrompt) return;
 
     deferredPrompt.prompt();

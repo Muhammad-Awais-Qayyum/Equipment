@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import { BarChart3, TrendingUp } from 'lucide-react';
+import { BarChart3, TrendingUp, RotateCcw } from 'lucide-react';
 import { Card } from './Card';
+import { Button } from './Button';
+import { Modal } from './Modal';
 import { db } from '../lib/db';
 
 type TimePeriod = 'day' | 'week' | 'month' | 'year';
@@ -16,6 +18,8 @@ export function EquipmentAnalytics() {
   const [stats, setStats] = useState<CategoryStat[]>([]);
   const [loading, setLoading] = useState(true);
   const [totalBorrows, setTotalBorrows] = useState(0);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
     loadAnalytics();
@@ -104,6 +108,35 @@ export function EquipmentAnalytics() {
     }
   }
 
+  async function handleReset() {
+    setResetting(true);
+    try {
+      // Delete all loan history
+      await db.loans.clear();
+      
+      // Reset all equipment to available
+      const allEquipment = await db.equipment.toArray();
+      const now = new Date().toISOString();
+      await Promise.all(
+        allEquipment.map(item =>
+          db.equipment.update(item.id, {
+            status: 'available',
+            updated_at: now,
+          })
+        )
+      );
+
+      // Reload analytics
+      await loadAnalytics();
+      setShowResetConfirm(false);
+    } catch (error) {
+      console.error('Error resetting analytics:', error);
+      alert('Failed to reset analytics');
+    } finally {
+      setResetting(false);
+    }
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-2 sm:mb-3">
@@ -111,6 +144,14 @@ export function EquipmentAnalytics() {
           <BarChart3 className="w-4 h-4 sm:w-5 sm:h-5 text-gray-700 dark:text-gray-300" />
           <h3 className="text-sm sm:text-base md:text-lg font-bold text-gray-900 dark:text-white">Equipment Usage Analytics</h3>
         </div>
+        <button
+          onClick={() => setShowResetConfirm(true)}
+          className="px-2 sm:px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors text-xs sm:text-sm font-medium flex items-center gap-1.5"
+          title="Reset analytics data"
+        >
+          <RotateCcw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+          <span className="hidden xs:inline">Reset</span>
+        </button>
       </div>
 
       <Card>
@@ -199,6 +240,50 @@ export function EquipmentAnalytics() {
           )}
         </div>
       </Card>
+
+      <Modal
+        isOpen={showResetConfirm}
+        onClose={() => setShowResetConfirm(false)}
+        size="sm"
+        position="center"
+      >
+        <div className="space-y-4">
+          <h3 className="text-xl font-bold text-red-600 dark:text-red-400">Reset Analytics</h3>
+          <div className="space-y-2">
+            <p className="text-gray-600 dark:text-gray-300 font-semibold">
+              WARNING: This action cannot be undone!
+            </p>
+            <p className="text-gray-600 dark:text-gray-300">
+              This will:
+            </p>
+            <ul className="list-disc list-inside text-gray-600 dark:text-gray-300 space-y-1 ml-2">
+              <li>Delete all loan history</li>
+              <li>Reset all equipment to "available" status</li>
+              <li>Clear all analytics data</li>
+            </ul>
+            <p className="text-gray-600 dark:text-gray-300 text-sm mt-2">
+              This is useful for testing purposes.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="danger"
+              fullWidth
+              onClick={handleReset}
+              disabled={resetting}
+            >
+              {resetting ? 'Resetting...' : 'Reset Analytics'}
+            </Button>
+            <Button
+              variant="secondary"
+              fullWidth
+              onClick={() => setShowResetConfirm(false)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

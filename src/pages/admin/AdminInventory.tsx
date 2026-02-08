@@ -17,6 +17,7 @@ export function AdminInventory() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingItem, setEditingItem] = useState<EquipmentItem | null>(null);
   const [loading, setLoading] = useState(true);
+  const [availableCategories, setAvailableCategories] = useState<string[]>([]);
 
   const [formData, setFormData] = useState({
     item_id: '',
@@ -33,6 +34,7 @@ export function AdminInventory() {
 
   useEffect(() => {
     loadItems();
+    loadCategories();
   }, []);
 
   useEffect(() => {
@@ -42,14 +44,24 @@ export function AdminInventory() {
   async function loadItems() {
     try {
       const equipment = await db.equipment.toArray();
-      equipment.sort((a, b) =>
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      );
+      equipment.sort((a, b) => a.name.localeCompare(b.name));
       setItems(equipment);
     } catch (error) {
       console.error('Error loading items:', error);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadCategories() {
+    try {
+      const equipment = await db.equipment.toArray();
+      const categories = [...new Set(equipment.map(item => item.category).filter(Boolean))] as string[];
+      categories.sort();
+      setAvailableCategories(categories.length > 0 ? categories : ['Basketball', 'Football', 'Soccer', 'Tennis', 'Volleyball', 'Other']);
+    } catch (error) {
+      console.error('Error loading categories:', error);
+      setAvailableCategories(['Basketball', 'Football', 'Soccer', 'Tennis', 'Volleyball', 'Other']);
     }
   }
 
@@ -141,6 +153,7 @@ export function AdminInventory() {
       setEditingItem(null);
       resetForm();
       loadItems();
+      loadCategories();
     } catch (error: any) {
       console.error('Error saving item:', error);
       setToast({ message: error.message || 'Failed to save equipment', type: 'error' });
@@ -155,6 +168,7 @@ export function AdminInventory() {
     try {
       await db.equipment.delete(id);
       loadItems();
+      loadCategories();
     } catch (error) {
       console.error('Error deleting item:', error);
     }
@@ -206,7 +220,7 @@ export function AdminInventory() {
         onChange={setStatusFilter}
       />
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-3">
+      <div className="grid grid-cols-4 gap-2 sm:gap-3">
         {filteredItems.map((item) => {
           const getStatusLabel = (status: string) => {
             switch (status) {
@@ -224,7 +238,7 @@ export function AdminInventory() {
                   <img
                     src={item.image_url}
                     alt={item.name}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-contain bg-white"
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center">
@@ -297,7 +311,7 @@ export function AdminInventory() {
                 <img
                   src={imagePreview}
                   alt="Preview"
-                  className="w-full h-48 object-cover rounded-lg"
+                  className="w-full h-48 object-contain bg-white rounded-lg"
                 />
                 <button
                   type="button"
@@ -361,13 +375,13 @@ export function AdminInventory() {
               onChange={(e) => setFormData({ ...formData, category: e.target.value })}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
-              <option value="Basketball">Basketball</option>
-              <option value="Football">Football</option>
-              <option value="Soccer">Soccer</option>
-              <option value="Tennis">Tennis</option>
-              <option value="Volleyball">Volleyball</option>
-              <option value="Other">Other</option>
+              {availableCategories.map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
             </select>
+            <p className="mt-1 text-xs text-gray-500">
+              Categories are loaded from existing equipment. Add new categories in Settings.
+            </p>
           </div>
 
           <div>
