@@ -161,22 +161,49 @@ export async function seedDatabase() {
 }
 
 export async function calculateTrustScore(studentId: string): Promise<number> {
-  const loans = await db.loans
+  const student = await db.students.get(studentId);
+  if (!student) return 50.0;
+
+  // Get all returned loans, sorted by return date (oldest first)
+  const allLoans = await db.loans
     .where('student_id')
     .equals(studentId)
     .and(loan => loan.returned_at !== null)
     .toArray();
 
-  if (loans.length === 0) {
+  if (allLoans.length === 0) {
+    // No returns yet, start at 50%
     return 50.0;
   }
 
-  const onTimeReturns = loans.filter(
-    loan => loan.returned_at && new Date(loan.returned_at) <= new Date(loan.due_at)
-  ).length;
+  // Sort by return date (oldest first) to process in chronological order
+  allLoans.sort((a, b) => {
+    const dateA = a.returned_at ? new Date(a.returned_at).getTime() : 0;
+    const dateB = b.returned_at ? new Date(b.returned_at).getTime() : 0;
+    return dateA - dateB;
+  });
 
-  const score = (onTimeReturns / loans.length) * 100;
-  return Math.round(score * 10) / 10;
+  // Start with base score of 50%
+  let score = 50.0;
+
+  // Process each return incrementally
+  for (const loan of allLoans) {
+    if (loan.returned_at && loan.due_at) {
+      const returnedDate = new Date(loan.returned_at);
+      const dueDate = new Date(loan.due_at);
+      const isOnTime = returnedDate <= dueDate;
+
+      if (isOnTime) {
+        // Increase by 50% (multiply by 1.5), capped at 100%
+        score = Math.min(100.0, score * 1.5);
+      } else {
+        // Decrease by 50% (multiply by 0.5)
+        score = score * 0.5;
+      }
+    }
+  }
+  
+  return Math.max(0, Math.round(score * 10) / 10);
 }
 
 export async function updateLoanStatus(loanId: string) {
@@ -193,11 +220,60 @@ export async function updateLoanStatus(loanId: string) {
   });
 }
 
-export async function updateStudentTrustScore(studentId: string) {
-  const trustScore = await calculateTrustScore(studentId);
-  await db.students.update(studentId, {
-    trust_score: trustScore,
-    updated_at: new Date().toISOString(),
-  });
+export async function updateStudentTrustScore(studentId: string, returnedLoan?: { returned_at: string; due_at: string }) {
+  try {
+    const student = await db.students.get(studentId);
+    if (!student) return;
+
+    // If a specific loan was just returned, adjust score based on that return
+    if (returnedLoan && returnedLoan.returned_at && returnedLoan.due_at) {
+      const returnedDate = new Date(returnedLoan.returned_at);
+      const dueDate = new Date(returnedLoan.due_at);
+      const isOnTime = returnedDate <= dueDate;
+      
+      const currentScore = student.trust_score || 50.0;
+      let newScore: number;
+      
+      if (isOnTime) {
+        // Increase by 50% (multiply by 1.5), capped at 100%
+        newScore = Math.min(100.0, currentScore * 1.5);
+      } else {
+        // Decrease by 50% (multiply by 0.5)
+        newScore = currentScore * 0.5;
+      }
+      
+      await db.students.update(studentId, {
+        trust_score: Math.max(0, Math.round(newScore * 10) / 10),
+        updated_at: new Date().toISOString(),
+      });
+    } else {
+      // Fallback: recalculate from all returns if no specific loan provided
+      const trustScore = await calculateTrustScore(studentId);
+      await db.students.update(studentId, {
+        trust_score: trustScore,
+        updated_at: new Date().toISOString(),
+      });
+    }
+  } catch (error) {
+    console.error('Error updating trust score:', error);
+  }
+}
+
+// Utility function to recalculate all student trust scores
+export async function recalculateAllTrustScores() {
+  try {
+    const students = await db.students.toArray();
+    await Promise.all(
+      students.map(async (student) => {
+        const trustScore = await calculateTrustScore(student.id);
+        await db.students.update(student.id, {
+          trust_score: trustScore,
+          updated_at: new Date().toISOString(),
+        });
+      })
+    );
+  } catch (error) {
+    console.error('Error recalculating all trust scores:', error);
+  }
 }
 

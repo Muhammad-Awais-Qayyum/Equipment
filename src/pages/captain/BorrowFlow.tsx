@@ -39,9 +39,34 @@ export function BorrowFlow({ onComplete }: { onComplete: () => void }) {
   }, [equipment, searchQuery]);
 
   async function loadStudents() {
-    const students = await db.students.toArray();
-    students.sort((a, b) => a.full_name.localeCompare(b.full_name));
-    setStudents(students);
+    try {
+      const allStudents = await db.students.toArray();
+      
+      // Count late returns for each student
+      const studentsWithLateCounts = await Promise.all(
+        allStudents.map(async (student) => {
+          const loans = await db.loans
+            .where('student_id')
+            .equals(student.id)
+            .and(loan => loan.returned_at !== null)
+            .toArray();
+          
+          const lateReturns = loans.filter(
+            loan => loan.returned_at && new Date(loan.returned_at) > new Date(loan.due_at)
+          ).length;
+          
+          return {
+            ...student,
+            lateReturnCount: lateReturns,
+          };
+        })
+      );
+      
+      studentsWithLateCounts.sort((a, b) => a.full_name.localeCompare(b.full_name));
+      setStudents(studentsWithLateCounts);
+    } catch (error) {
+      console.error('Error loading students:', error);
+    }
   }
 
   async function loadEquipment() {
@@ -188,6 +213,10 @@ export function BorrowFlow({ onComplete }: { onComplete: () => void }) {
                               trustScore >= 50 ? 'text-yellow-600 dark:text-yellow-400' :
                               'text-red-600 dark:text-red-400';
             
+            const lateReturnCount = student.lateReturnCount || 0;
+            const showFirstWarning = lateReturnCount === 1;
+            const showFinalWarning = lateReturnCount >= 2;
+            
             return (
               <div
                 key={student.id}
@@ -208,6 +237,16 @@ export function BorrowFlow({ onComplete }: { onComplete: () => void }) {
                       <span className={`text-sm font-bold ${trustColor}`}>
                         {Math.round(trustScore)}%
                       </span>
+                      {showFirstWarning && (
+                        <span className="px-2 py-0.5 text-xs font-semibold bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-400 rounded-full">
+                          First Warning
+                        </span>
+                      )}
+                      {showFinalWarning && (
+                        <span className="px-2 py-0.5 text-xs font-semibold bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-400 rounded-full">
+                          Final Warning
+                        </span>
+                      )}
                     </div>
                     <p className="text-sm text-gray-600 dark:text-gray-300">Class {student.class_name}</p>
                   </div>

@@ -77,6 +77,8 @@ export function ReturnFlow({ onComplete }: { onComplete: () => void }) {
   async function handleReturn(loan: any) {
     try {
       const now = new Date().toISOString();
+      const dueDate = new Date(loan.due_at);
+      const isLate = new Date(now) > dueDate;
 
       await db.loans.update(loan.id, {
         returned_at: now,
@@ -89,8 +91,11 @@ export function ReturnFlow({ onComplete }: { onComplete: () => void }) {
         updated_at: now,
       });
 
-      // Update student trust score
-      await updateStudentTrustScore(loan.student_id);
+      // Update student trust score based on this return (on-time increases by 50%, late decreases by 50%)
+      await updateStudentTrustScore(loan.student_id, {
+        returned_at: now,
+        due_at: loan.due_at,
+      });
 
       setLastReturned(loan);
       setShowToast(true);

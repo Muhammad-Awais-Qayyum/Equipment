@@ -35,6 +35,17 @@ export function AdminInventory() {
   useEffect(() => {
     loadItems();
     loadCategories();
+    
+    // Listen for category updates from settings page
+    const handleCategoryUpdate = () => {
+      loadCategories();
+    };
+    
+    window.addEventListener('categoriesUpdated', handleCategoryUpdate);
+    
+    return () => {
+      window.removeEventListener('categoriesUpdated', handleCategoryUpdate);
+    };
   }, []);
 
   useEffect(() => {
@@ -55,10 +66,20 @@ export function AdminInventory() {
 
   async function loadCategories() {
     try {
+      // Load categories from settings (persisted categories)
+      const settingsList = await db.settings.toArray();
+      const savedCategories = settingsList.length > 0 ? (settingsList[0].categories || []) : [];
+      
+      // Also get categories from existing equipment (for backward compatibility)
       const equipment = await db.equipment.toArray();
-      const categories = [...new Set(equipment.map(item => item.category).filter(Boolean))] as string[];
-      categories.sort();
-      setAvailableCategories(categories.length > 0 ? categories : ['Basketball', 'Football', 'Soccer', 'Tennis', 'Volleyball', 'Other']);
+      const equipmentCategories = [...new Set(equipment.map(item => item.category).filter(Boolean))] as string[];
+      
+      // Combine both sources and remove duplicates
+      const allCategories = [...new Set([...savedCategories, ...equipmentCategories])];
+      allCategories.sort();
+      
+      // If no categories exist, use defaults
+      setAvailableCategories(allCategories.length > 0 ? allCategories : ['Basketball', 'Football', 'Soccer', 'Tennis', 'Volleyball', 'Other']);
     } catch (error) {
       console.error('Error loading categories:', error);
       setAvailableCategories(['Basketball', 'Football', 'Soccer', 'Tennis', 'Volleyball', 'Other']);
@@ -185,7 +206,7 @@ export function AdminInventory() {
     clearImage();
   }
 
-  function openEditModal(item: EquipmentItem) {
+  async function openEditModal(item: EquipmentItem) {
     setEditingItem(item);
     setFormData({
       item_id: item.item_id,
@@ -195,6 +216,8 @@ export function AdminInventory() {
       condition_notes: item.condition_notes || '',
     });
     setImagePreview(item.image_url);
+    // Reload categories before opening modal to ensure latest categories are shown
+    await loadCategories();
     setShowAddModal(true);
   }
 
@@ -281,9 +304,11 @@ export function AdminInventory() {
       </div>
 
       <button
-        onClick={() => {
+        onClick={async () => {
           resetForm();
           setEditingItem(null);
+          // Reload categories before opening modal to ensure latest categories are shown
+          await loadCategories();
           setShowAddModal(true);
         }}
         className="fixed bottom-20 sm:bottom-24 right-4 sm:right-6 w-12 h-12 sm:w-14 sm:h-14 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-2xl flex items-center justify-center transition-all active:scale-95 z-40"
@@ -380,7 +405,7 @@ export function AdminInventory() {
               ))}
             </select>
             <p className="mt-1 text-xs text-gray-500">
-              Categories are loaded from existing equipment. Add new categories in Settings.
+              Categories are loaded from Settings. Add or manage categories in the Settings page.
             </p>
           </div>
 

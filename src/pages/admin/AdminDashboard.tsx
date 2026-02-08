@@ -137,6 +137,10 @@ export function AdminDashboard() {
     try {
       const now = new Date().toISOString();
 
+      // Get loan before updating to have the due_at date
+      const loan = await db.loans.get(loanId);
+      if (!loan) return;
+
       await db.loans.update(loanId, {
         returned_at: now,
         status: 'returned',
@@ -148,11 +152,12 @@ export function AdminDashboard() {
         updated_at: now,
       });
 
-      const loan = await db.loans.get(loanId);
-      if (loan) {
-        const { updateStudentTrustScore } = await import('../../lib/db');
-        await updateStudentTrustScore(loan.student_id);
-      }
+      // Update student trust score based on this return (on-time increases by 50%, late decreases by 50%)
+      const { updateStudentTrustScore } = await import('../../lib/db');
+      await updateStudentTrustScore(loan.student_id, {
+        returned_at: now,
+        due_at: loan.due_at,
+      });
 
       loadDashboardData();
       if (showAllLoans) {

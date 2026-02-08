@@ -193,6 +193,9 @@ export function AdminSettings() {
       await loadCategories();
       setNewCategory('');
       setShowAddCategory(false);
+      
+      // Dispatch event to notify other components
+      window.dispatchEvent(new CustomEvent('categoriesUpdated'));
     } catch (error) {
       console.error('Error adding category:', error);
       alert('Failed to add category');
@@ -223,6 +226,9 @@ export function AdminSettings() {
 
       await loadCategories();
       setEditingCategory(null);
+      
+      // Dispatch event to notify other components
+      window.dispatchEvent(new CustomEvent('categoriesUpdated'));
     } catch (error) {
       console.error('Error renaming category:', error);
       alert('Failed to rename category');
@@ -247,6 +253,9 @@ export function AdminSettings() {
     // Reload categories to update UI
     await loadCategories();
     setDeletingCategory(null);
+    
+    // Dispatch event to notify other components
+    window.dispatchEvent(new CustomEvent('categoriesUpdated'));
   }
 
   async function loadUsers() {
