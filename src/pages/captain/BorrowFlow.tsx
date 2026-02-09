@@ -10,7 +10,7 @@ import { useAuth } from '../../contexts/AuthContext';
 
 const MIN_DURATION = 5;
 const MAX_DURATION = 480;
-const DEFAULT_DURATION = 60;
+const DEFAULT_DURATION = 30;
 
 export function BorrowFlow({ onComplete }: { onComplete: () => void }) {
   const { user } = useAuth();
